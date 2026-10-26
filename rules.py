@@ -36,3 +36,56 @@ RESULT_PREFIXES = {"승인", "대기", "거절", "막힘"}
 def format_result(prefix: str, detail: str = "") -> str:
     assert prefix in RESULT_PREFIXES
     return f"{prefix}: {detail}" if detail else prefix
+
+
+def missing_required_roles(members: list[dict]) -> list[str]:
+    return [r for r in REQUIRED_ROLES if not any(has_role(m, r) for m in members)]
+
+
+def validate_final_assignment(
+    teams: list[list[dict]], expected_student_nos: set[str]
+) -> tuple[bool, str | None]:
+    all_nos = [m["student_no"] for team in teams for m in team]
+    if len(all_nos) != len(set(all_nos)) or set(all_nos) != expected_student_nos:
+        return False, "배정 대상이 빠지거나 중복됨"
+
+    for i, team in enumerate(teams):
+        if not (2 <= len(team) <= 4):
+            return False, f"팀{i + 1}의 인원이 2~4명이 아님"
+        main_roles = [m["main_role"] for m in team]
+        if len(main_roles) != len(set(main_roles)):
+            return False, f"팀{i + 1}에 주 역할이 겹치는 학생이 있음"
+        if count_required_role_gap(team) > 0:
+            missing = missing_required_roles(team)
+            if missing:
+                return False, f"팀{i + 1}에 {', '.join(missing)}를 맡을 학생이 없음"
+            return False, f"팀{i + 1}에서 기획자와 웹 프로그래머를 서로 다른 학생이 맡지 못함"
+
+    return True, None
+
+
+def find_valid_assignment(
+    unassigned: list[dict], existing_teams: list[list[dict]]
+) -> list[list[dict]] | None:
+    teams = [list(team) for team in existing_teams]
+    expected = {m["student_no"] for team in existing_teams for m in team} | {
+        s["student_no"] for s in unassigned
+    }
+
+    def backtrack(index: int) -> bool:
+        if index == len(unassigned):
+            ok, _ = validate_final_assignment(teams, expected)
+            return ok
+        student = unassigned[index]
+        for team in teams:
+            if len(team) >= 4:
+                continue
+            team.append(student)
+            if backtrack(index + 1):
+                return True
+            team.pop()
+        return False
+
+    if backtrack(0):
+        return teams
+    return None
