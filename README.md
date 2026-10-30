@@ -24,7 +24,7 @@ https://team-formation-app-iskionghlkhl5b3njsqtxs.streamlit.app/
 | AI 응답이 늦을 때 | 어려운 해결 | `ThreadPoolExecutor.result(timeout=...)`로 전체 대기시간 강제 종료 |
 | 3차 모델까지 실패 | 어려운 해결 | `rules.find_valid_assignment`로 규칙을 만족하는 배정을 전수 탐색 |
 | AI 대기 중 화면 | 어려운 해결 | `assign_status` 컨테이너에 몇 차 모델 대기 중인지 표시 |
-| DB(Supabase)가 일시정지되지 않게 | 어려운 해결 | `.github/workflows/keep-db-awake.yml`이 매일 배포 주소를 호출 |
+| DB(Supabase)가 일시정지되지 않게 | 어려운 해결 | `.github/workflows/keep-db-awake.yml`이 매일 `psql`로 DB에 직접 질의(`DATABASE_URL`을 GitHub Actions secret으로 등록해야 동작함) |
 
 ## 4. 쓴 모델 3개의 이름
 
@@ -40,15 +40,18 @@ https://team-formation-app-iskionghlkhl5b3njsqtxs.streamlit.app/
 
 ## 6. 과제 해결 과정에서 클로드가 잘못된 추론이나 답변을 한 사례
 
-구현 중 발견하고 고친 버그들(전부 `.superpowers/sdd/2026-10-26-team-formation-app/progress.md` 원장의 `Ruling:` 항목에 근거로 남아 있음):
+구현 중 발견하고 고친 버그들(각 항목의 커밋 해시에 수정 내용이 그대로 들어있음):
 
-1. **upload_roster가 팀 ID 시퀀스를 리셋하지 않은 문제**: `tf_teams`를 `delete`만 하고 `serial` 시퀀스를 그대로 둬서, 명단을 두 번째 올릴 때부터 새 팀의 DB id가 1..N이 아니게 되어 "team_1의 1은 관리자가 만든 팀1,팀2,...의 번호"라는 전제가 깨지고 `tf_members` 외래키 위반이 났음. `db.py`의 `upload_roster`를 직접 재실행해 발견했고, `alter sequence tf_teams_id_seq restart with 1`을 추가해 고침.
-2. **upload_roster가 마감 표시를 지우지 않은 문제**: 공고 2.6절은 "지원, 투표, 팀원, 마감 표시를 모두 지우고" 초기화하라고 명시하는데, `tf_settings`(마감 표시)를 지우는 코드가 빠져 있어서 한 번 마감한 뒤 새 명단을 올려도 계속 "막힘: 모집이 마감됨"이 나는 걸 수동 시나리오 검증 중 발견. `upload_roster`에 `delete from tf_settings`를 추가해 고침.
-3. **버튼 클릭 직후 `st.rerun()`이 방금 쓴 result를 지우는 문제**: 지원/투표 단추를 누른 직후 `st.rerun()`을 또 호출하면, 그 실행에서 `result` 컨테이너에 써 둔 메시지가 다음 재실행에서 바로 지워져 "단계마다 result를 확인"(6.2절)할 수 없게 됨을 실제 브라우저로 직접 테스트하다 발견. `st.session_state`에 결과를 담아 재실행 뒤에도 보이게 고침.
+1. **upload_roster가 팀 ID 시퀀스를 리셋하지 않은 문제**: `tf_teams`를 `delete`만 하고 `serial` 시퀀스를 그대로 둬서, 명단을 두 번째 올릴 때부터 새 팀의 DB id가 1..N이 아니게 되어 "team_1의 1은 관리자가 만든 팀1,팀2,...의 번호"라는 전제가 깨지고 `tf_members` 외래키 위반이 났음. `db.py`의 `upload_roster`를 직접 재실행해 발견했고, `alter sequence tf_teams_id_seq restart with 1`을 추가해 고침(커밋 `5743add`).
+2. **upload_roster가 마감 표시를 지우지 않은 문제**: 공고 2.6절은 "지원, 투표, 팀원, 마감 표시를 모두 지우고" 초기화하라고 명시하는데, `tf_settings`(마감 표시)를 지우는 코드가 빠져 있어서 한 번 마감한 뒤 새 명단을 올려도 계속 "막힘: 모집이 마감됨"이 나는 걸 수동 시나리오 검증 중 발견. `upload_roster`에 `delete from tf_settings`를 추가해 고침(커밋 `b486a64`).
+3. **버튼 클릭 직후 `st.rerun()`이 방금 쓴 result를 지우는 문제**: 지원/투표 단추를 누른 직후 `st.rerun()`을 또 호출하면, 그 실행에서 `result` 컨테이너에 써 둔 메시지가 다음 재실행에서 바로 지워져 "단계마다 result를 확인"(6.2절)할 수 없게 됨을 실제 브라우저로 직접 테스트하다 발견. `st.session_state`에 결과를 담아 재실행 뒤에도 보이게 고침(커밋 `bd31721`).
+4. **120초 하드 타임아웃이 실제로는 안 끊기던 문제**: `ThreadPoolExecutor`를 `with` 블록으로 쓰면 `__exit__`에서 `shutdown(wait=True)`가 걸려, `future.result(timeout=...)`가 시간 초과로 `None`을 반환한 뒤에도 실제로는 워커 스레드가 끝날 때까지 블로킹됐음(테스트로 측정: 설정한 제한 0.2초인데 실제로는 3초 넘게 걸림). 독립적인 코드 리뷰(최종 리뷰)에서 지적받아 발견했고, `with` 없이 `executor.shutdown(wait=False, cancel_futures=True)`로 바꾸고 `requests`에도 `timeout`을 직접 줘서 고침(커밋 `746ae7f`).
+5. **화면에 학번만 보이고 이름이 안 보이던 문제**: 공고 2.7절은 `whoami`/`team_N`/`unassigned`가 전부 "이름이 보임"이라고 명시하는데, `db.py`가 `name`을 아예 조회하지 않아서 전부 학번으로 표시되고 있었음. 역시 최종 리뷰에서 지적받아 발견했고, 관련 쿼리에 `name`을 추가해 고침(커밋 `2eff9d7`).
+6. **투표 단추가 다른 세션에서 자동으로 안 뜨던 문제**: 지원/투표 UI를 `st.fragment(run_every="5s")` 밖에 둬서, 다른 학생이 내 팀에 지원해도 내가 아무것도 안 누르면 그 투표 단추가 영원히 안 나타났음(채점 프로그램은 가상 학생마다 브라우저를 열어 두고 기다리므로 치명적). 두 개의 실제 브라우저 세션으로 재현해 확인했고, UI를 fragment 안으로 옮겨 고침(커밋 `2eff9d7`).
 
 ## 7. 본인이 제출한 앱에서 발견한 문제점이나 개선 필요 사항
 
-AI 배정 버튼을 누른 뒤 실제로 끝날 때까지 체감상 꽤 오래 걸릴 수 있다. 배포한 앱에서 직접 확인했을 때, 1차·2차 무료 모델이 각각 120초 가까이 시간을 다 쓰고서야 실패해 3차 모델로 넘어갔다(화면 [img/ai-fallback-3rd-model.jpg](img/ai-fallback-3rd-model.jpg) — "3차 모델 응답 대기 중"이 뜨기까지 총 2분 이상 걸림). 공고 6.3절 18번의 "AI 배정이 10분 넘도록 끝나지 않으면" 기준은 넘지 않지만, 관리자 입장에서는 화면이 멈춘 것처럼 느껴질 수 있어 "몇 차 모델인지" 안내만으로는 부족하고, 남은 예상 대기시간이나 진행률 표시를 추가하면 더 좋을 것 같다.
+부록 1(쉬움) 6단계(관리자가 AI 배정을 누르는 단계)를 배포한 앱에서 직접 실행했을 때, AI 배정 버튼을 누른 뒤 실제로 끝날 때까지 체감상 꽤 오래 걸렸다. 1차·2차 무료 모델이 각각 120초 가까이 시간을 다 쓰고서야 실패해 3차 모델로 넘어갔다(화면 [img/ai-fallback-3rd-model.jpg](img/ai-fallback-3rd-model.jpg) — "3차 모델 응답 대기 중"이 뜨기까지 총 2분 이상 걸림). 공고 6.3절 18번의 "AI 배정이 10분 넘도록 끝나지 않으면" 기준은 넘지 않지만(3개 모델을 합쳐도 최대 6분), 관리자 입장에서는 화면이 멈춘 것처럼 느껴질 수 있어 "몇 차 모델인지" 안내만으로는 부족하고, 남은 예상 대기시간이나 진행률 표시를 추가하면 더 좋을 것 같다.
 
 ## 개발 환경
 
