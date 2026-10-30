@@ -4,7 +4,7 @@
 
 ## 1. 배포 주소
 
-(Task 12에서 Streamlit Community Cloud 배포 후 채움)
+https://team-formation-app-iskionghlkhl5b3njsqtxs.streamlit.app/
 
 ## 2. PRD와 구현 계획의 위치
 
@@ -28,11 +28,15 @@
 
 ## 4. 쓴 모델 3개의 이름
 
-(Task 12에서 openrouter.ai/models(Free 필터)에서 실제 가용 모델을 확인해 `.env`의 `OPENROUTER_MODEL_1/2/3`에 채운 뒤 여기에 적음)
+- 1차 `nvidia/nemotron-3-ultra-550b-a55b:free`
+- 2차 `cohere/north-mini-code:free`
+- 3차 `nvidia/nemotron-3.5-lightning:free`
 
 ## 5. 오픈라우터 AI 모델 호출 실패 사례
 
-(Task 12 배포 후 실제 호출 실패 사례와 화면 캡처로 채움)
+배포한 앱에서 AI 배정을 실행했을 때, 1차·2차 모델이 모두 실패(응답 없음/시간 초과)하고 3차 모델로 넘어가는 장면을 실제로 확인했다(화면 [img/ai-fallback-3rd-model.jpg](img/ai-fallback-3rd-model.jpg)). 그 전 테스트에서는 1차 모델(`google/gemma-4-31b-it:free`, 이후 모델 교체 전)이 HTTP 429(무료 모델 공유 사용량 한도 초과)로 실패하는 것도 직접 확인했다.
+
+또한 학생 3명을 팀 3개(각 팀 2~4명 필요)에 배정하려 한 시도에서는 애초에 수학적으로 규칙을 만족하는 배정이 존재하지 않아, 3차 모델까지 실패한 뒤 앱의 자체 전수 탐색도 배정을 찾지 못하고 "막힘: 규칙을 지키는 배정이 없음"을 정확히 보여줬다(화면 [img/ai-no-valid-assignment.jpg](img/ai-no-valid-assignment.jpg), 2.5절 8항).
 
 ## 6. 과제 해결 과정에서 클로드가 잘못된 추론이나 답변을 한 사례
 
@@ -44,7 +48,7 @@
 
 ## 7. 본인이 제출한 앱에서 발견한 문제점이나 개선 필요 사항
 
-(Task 12에서 연습 시나리오 1~3을 끝까지 수동 실행하며 발견한 사례와 화면으로 채움)
+AI 배정 버튼을 누른 뒤 실제로 끝날 때까지 체감상 꽤 오래 걸릴 수 있다. 배포한 앱에서 직접 확인했을 때, 1차·2차 무료 모델이 각각 120초 가까이 시간을 다 쓰고서야 실패해 3차 모델로 넘어갔다(화면 [img/ai-fallback-3rd-model.jpg](img/ai-fallback-3rd-model.jpg) — "3차 모델 응답 대기 중"이 뜨기까지 총 2분 이상 걸림). 공고 6.3절 18번의 "AI 배정이 10분 넘도록 끝나지 않으면" 기준은 넘지 않지만, 관리자 입장에서는 화면이 멈춘 것처럼 느껴질 수 있어 "몇 차 모델인지" 안내만으로는 부족하고, 남은 예상 대기시간이나 진행률 표시를 추가하면 더 좋을 것 같다.
 
 ## 개발 환경
 
