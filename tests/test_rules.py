@@ -8,6 +8,7 @@ from rules import (
     missing_required_roles,
     validate_final_assignment,
     find_valid_assignment,
+    explain_infeasibility,
 )
 
 
@@ -146,3 +147,22 @@ def test_find_valid_assignment_returns_none_when_impossible():
     ]
     unassigned = [_student("5", "기획자")]
     assert find_valid_assignment(unassigned, existing_teams) is None
+
+
+def test_explain_infeasibility_names_the_team_and_role():
+    existing_teams = [
+        [_student("1", "기획자"), _student("2", "웹 프로그래머")],
+        [_student("6", "기획자"), _student("7", "웹 프로그래머")],
+        [_student("3", "기획자"), _student("4", "발표자")],
+    ]
+    # 팀3은 기획자는 있지만 웹 프로그래머를 맡을 사람이 아예 없고, 팀이 없는 학생 중에도 없음
+    unassigned = [_student("5", "보고서 작성자")]
+    reason = explain_infeasibility(unassigned, existing_teams)
+    assert reason == "팀3에 웹 프로그래머를 맡을 학생이 없음"
+
+
+def test_explain_infeasibility_returns_none_when_no_clear_culprit():
+    # 모든 팀에 필요한 역할을 맡을 후보가 있지만 자리 배치상 안 되는 경우
+    existing_teams = [[_student("1", "기획자"), _student("2", "웹 프로그래머")]]
+    unassigned = [_student("3", "테스터")]
+    assert explain_infeasibility(unassigned, existing_teams) is None

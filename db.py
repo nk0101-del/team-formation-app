@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 from auth import hash_password, verify_password
-from rules import check_team_constraints, format_result, validate_final_assignment
+from rules import check_team_constraints, explain_infeasibility, format_result, validate_final_assignment
 from ai_assign import assign_with_fallback
 
 load_dotenv()
@@ -128,7 +128,7 @@ def get_teams(engine) -> list[list[dict]]:
         for team_id in team_ids:
             rows = conn.execute(
                 text(
-                    "select s.student_no, s.main_role, s.id "
+                    "select s.student_no, s.name, s.main_role, s.id "
                     "from tf_members m join tf_students s on s.id = m.student_id "
                     "where m.team_id = :tid"
                 ),
@@ -140,6 +140,7 @@ def get_teams(engine) -> list[list[dict]]:
                     {
                         "id": row.id,
                         "student_no": row.student_no,
+                        "name": row.name,
                         "main_role": row.main_role,
                         "sub_roles": _sub_roles(conn, row.id),
                     }
@@ -152,7 +153,7 @@ def get_unassigned_students(engine) -> list[dict]:
     with engine.connect() as conn:
         rows = conn.execute(
             text(
-                "select s.id, s.student_no, s.main_role from tf_students s "
+                "select s.id, s.student_no, s.name, s.main_role from tf_students s "
                 "where s.is_admin = false and s.id not in (select student_id from tf_members)"
             )
         ).fetchall()
@@ -162,6 +163,7 @@ def get_unassigned_students(engine) -> list[dict]:
                 {
                     "id": row.id,
                     "student_no": row.student_no,
+                    "name": row.name,
                     "main_role": row.main_role,
                     "sub_roles": _sub_roles(conn, row.id),
                 }
@@ -181,13 +183,16 @@ def get_pending_applications_for_team(engine, team_id: int) -> list[dict]:
     with engine.connect() as conn:
         rows = conn.execute(
             text(
-                "select a.id as application_id, s.student_no from tf_applications a "
+                "select a.id as application_id, s.student_no, s.name from tf_applications a "
                 "join tf_students s on s.id = a.student_id "
                 "where a.team_id = :tid and a.status = '대기'"
             ),
             {"tid": team_id},
         ).fetchall()
-        return [{"application_id": r.application_id, "student_no": r.student_no} for r in rows]
+        return [
+            {"application_id": r.application_id, "student_no": r.student_no, "name": r.name}
+            for r in rows
+        ]
 
 
 def get_my_vote(engine, application_id: int, voter_no: str) -> str | None:
@@ -387,7 +392,9 @@ def run_ai_assignment(
             )
 
     if proposal is None:
-        return None, logs, "규칙을 지키는 배정이 없음"
+        reason = explain_infeasibility(unassigned, teams)
+        detail = f"규칙을 지키는 배정이 없음({reason})" if reason else "규칙을 지키는 배정이 없음"
+        return None, logs, detail
     return proposal, logs, None
 
 

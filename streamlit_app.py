@@ -18,6 +18,7 @@ from db import (
     get_my_pending_application,
     get_my_vote,
     get_pending_applications_for_team,
+    get_student,
     get_teams,
     get_unassigned_students,
     is_recruiting_closed,
@@ -53,6 +54,12 @@ def set_result_and_rerun(message: str):
     st.rerun()
 
 
+def _role_text(member: dict) -> str:
+    if member["sub_roles"]:
+        return f"{member['main_role']} / {', '.join(member['sub_roles'])}"
+    return member["main_role"]
+
+
 def render_login():
     with st.form("login_form"):
         student_no = st.text_input("학번", key="login_student_no")
@@ -69,63 +76,66 @@ def render_login():
 
 
 def render_student_screen(student_no: str):
-    with st.container(key="whoami"):
-        st.write(f"로그인: {student_no}")
     show_last_result()
 
     @st.fragment(run_every="5s")
-    def team_list():
+    def body():
         st.caption("화면은 5초마다 자동으로 바뀜")
-        for i, members in enumerate(get_teams(engine)):
+
+        me = get_student(engine, student_no)
+        with st.container(key="whoami"):
+            st.write(f"로그인: {me['name']}")
+
+        teams = get_teams(engine)
+        my_team_id = None
+        for i, members in enumerate(teams):
+            if any(m["student_no"] == student_no for m in members):
+                my_team_id = i + 1
+
+        for i, members in enumerate(teams):
             team_id = i + 1
             with st.container(key=f"team_{team_id}"):
                 title = f"팀{team_id}"
-                if any(m["student_no"] == student_no for m in members):
+                if team_id == my_team_id:
                     title += " (내 팀)"
                 st.write(title)
                 if members:
                     for m in members:
-                        st.write(f"- {m['student_no']} ({m['main_role']})")
+                        st.write(f"- {m['name']} ({_role_text(m)})")
                 else:
                     st.write("아직 팀이 없음")
 
-    team_list()
+        already_member = my_team_id is not None
+        pending = get_my_pending_application(engine, student_no)
+        closed = is_recruiting_closed(engine)
+        can_apply = not already_member and not pending and not closed
 
-    teams = get_teams(engine)
-    my_team_id = None
-    for i, members in enumerate(teams):
-        if any(m["student_no"] == student_no for m in members):
-            my_team_id = i + 1
+        if can_apply:
+            st.subheader("팀에 지원하기")
+            for i in range(len(teams)):
+                team_id = i + 1
+                if st.button(f"팀{team_id}에 지원", key=f"apply_{team_id}"):
+                    result = apply_to_team(engine, student_no, team_id)
+                    set_result_and_rerun(result)
 
-    already_member = my_team_id is not None
-    pending = get_my_pending_application(engine, student_no)
-    closed = is_recruiting_closed(engine)
-    can_apply = not already_member and not pending and not closed
+        if my_team_id is not None:
+            st.subheader("내 팀에 들어온 지원")
+            for app in get_pending_applications_for_team(engine, my_team_id):
+                my_vote = get_my_vote(engine, app["application_id"], student_no)
+                if my_vote:
+                    st.write(f"{app['name']}: 내 투표: {my_vote}")
+                else:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("찬성", key=f"vote_yes_{app['student_no']}"):
+                            result = cast_vote(engine, student_no, app["application_id"], "찬성")
+                            set_result_and_rerun(result)
+                    with col2:
+                        if st.button("거부", key=f"vote_no_{app['student_no']}"):
+                            result = cast_vote(engine, student_no, app["application_id"], "거부")
+                            set_result_and_rerun(result)
 
-    if can_apply:
-        st.subheader("팀에 지원하기")
-        for i in range(len(teams)):
-            team_id = i + 1
-            if st.button(f"팀{team_id}에 지원", key=f"apply_{team_id}"):
-                result = apply_to_team(engine, student_no, team_id)
-                set_result_and_rerun(result)
-
-    if my_team_id is not None:
-        st.subheader("내 팀에 들어온 지원")
-        for app in get_pending_applications_for_team(engine, my_team_id):
-            my_vote = get_my_vote(engine, app["application_id"], student_no)
-            if my_vote:
-                st.write(f"{app['student_no']}: 내 투표: {my_vote}")
-            else:
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("찬성", key=f"vote_yes_{app['student_no']}"):
-                        result = cast_vote(engine, student_no, app["application_id"], "찬성")
-                        set_result_and_rerun(result)
-                with col2:
-                    if st.button("거부", key=f"vote_no_{app['student_no']}"):
-                        result = cast_vote(engine, student_no, app["application_id"], "거부")
-                        set_result_and_rerun(result)
+    body()
 
 
 def render_admin_screen():
@@ -171,11 +181,11 @@ def render_admin_screen():
                 st.write(f"팀{team_id}")
                 if members:
                     for m in members:
-                        st.write(f"- {m['student_no']} ({m['main_role']})")
+                        st.write(f"- {m['name']} ({_role_text(m)})")
                 else:
                     st.write("(비어 있음)")
         with st.container(key="unassigned"):
-            names = [s["student_no"] for s in get_unassigned_students(engine)]
+            names = [s["name"] for s in get_unassigned_students(engine)]
             st.write(", ".join(names) if names else "없음")
 
     status_view()
@@ -209,7 +219,7 @@ def render_admin_screen():
     if proposal is not None:
         st.subheader("배정안 (확정 전)")
         for i, members in enumerate(proposal):
-            st.write(f"팀{i + 1}: " + ", ".join(f"{m['student_no']}({m['main_role']})" for m in members))
+            st.write(f"팀{i + 1}: " + ", ".join(f"{m['name']}({_role_text(m)})" for m in members))
         if st.button("배정안 확정", key="admin_confirm"):
             confirm_assignment(engine, proposal)
             st.session_state["assign_proposal"] = None

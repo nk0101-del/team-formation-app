@@ -89,3 +89,11 @@ def find_valid_assignment(
     if backtrack(0):
         return teams
     return None
+
+
+def explain_infeasibility(unassigned: list[dict], existing_teams: list[list[dict]]) -> str | None:
+    for i, team in enumerate(existing_teams):
+        for role in missing_required_roles(team):
+            if not any(has_role(s, role) for s in unassigned):
+                return f"팀{i + 1}에 {role}를 맡을 학생이 없음"
+    return None
