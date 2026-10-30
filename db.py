@@ -1,11 +1,13 @@
 # 2026-10-26 20:07 KST
 import os
+import uuid
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 from auth import hash_password, verify_password
-from rules import check_team_constraints, format_result
+from rules import check_team_constraints, format_result, validate_final_assignment
+from ai_assign import assign_with_fallback
 
 load_dotenv()
 
@@ -44,6 +46,7 @@ def bootstrap_admin(engine, admin_password: str) -> None:
 def upload_roster(engine, students: list[dict], team_count: int) -> None:
     default_password_hash = hash_password("1234")
     with engine.begin() as conn:
+        conn.execute(text("delete from tf_settings"))
         conn.execute(text("delete from tf_votes"))
         conn.execute(text("delete from tf_applications"))
         conn.execute(text("delete from tf_members"))
@@ -312,3 +315,83 @@ def cast_vote(engine, voter_no: str, application_id: int, vote: str) -> str:
             text("update tf_applications set status = '승인' where id = :aid"), {"aid": application_id}
         )
     return format_result("승인")
+
+
+def close_recruiting(engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "insert into tf_settings (key, value) values ('recruiting_closed', 'true') "
+                "on conflict (key) do update set value = 'true'"
+            )
+        )
+        conn.execute(text("update tf_applications set status = '거절' where status = '대기'"))
+        lone_teams = conn.execute(
+            text("select team_id from tf_members group by team_id having count(*) = 1")
+        ).fetchall()
+        for row in lone_teams:
+            conn.execute(text("delete from tf_members where team_id = :tid"), {"tid": row.team_id})
+
+
+def run_ai_assignment(
+    engine, api_key: str, models: list[str], on_status=lambda msg: None
+) -> tuple[list[list[dict]] | None, list[dict], str | None]:
+    teams = get_teams(engine)
+    unassigned = get_unassigned_students(engine)
+    expected = {m["student_no"] for team in teams for m in team} | {
+        s["student_no"] for s in unassigned
+    }
+
+    proposal, logs = assign_with_fallback(teams, unassigned, api_key, models, expected, on_status=on_status)
+
+    batch_id = str(uuid.uuid4())
+    with engine.begin() as conn:
+        for log in logs:
+            conn.execute(
+                text(
+                    "insert into tf_ai_logs (batch_id, model_name, attempt_no, status, raw_response) "
+                    "values (:bid, :model, :attempt, :status, :detail)"
+                ),
+                {
+                    "bid": batch_id,
+                    "model": log["model"],
+                    "attempt": log["attempt_no"],
+                    "status": log["status"],
+                    "detail": log["detail"],
+                },
+            )
+
+    if proposal is None:
+        return None, logs, "규칙을 지키는 배정이 없음"
+    return proposal, logs, None
+
+
+def confirm_assignment(engine, proposal: list[list[dict]]) -> None:
+    expected = {m["student_no"] for team in proposal for m in team}
+    ok, reason = validate_final_assignment(proposal, expected)
+    if not ok:
+        raise ValueError(reason)
+
+    with engine.begin() as conn:
+        team_ids = [r.id for r in conn.execute(text("select id from tf_teams order by id"))]
+        for i, team_members in enumerate(proposal):
+            team_id = team_ids[i]
+            existing_ids = {
+                r.student_id
+                for r in conn.execute(
+                    text("select student_id from tf_members where team_id = :tid"), {"tid": team_id}
+                )
+            }
+            next_slot = len(existing_ids) + 1
+            for member in team_members:
+                student_row = conn.execute(
+                    text("select id from tf_students where student_no = :no"),
+                    {"no": member["student_no"]},
+                ).fetchone()
+                if student_row.id in existing_ids:
+                    continue
+                conn.execute(
+                    text("insert into tf_members (team_id, slot_no, student_id) values (:tid, :slot, :sid)"),
+                    {"tid": team_id, "slot": next_slot, "sid": student_row.id},
+                )
+                next_slot += 1
