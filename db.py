@@ -177,6 +177,31 @@ def is_recruiting_closed(engine) -> bool:
         return bool(row) and row.value == "true"
 
 
+def get_pending_applications_for_team(engine, team_id: int) -> list[dict]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "select a.id as application_id, s.student_no from tf_applications a "
+                "join tf_students s on s.id = a.student_id "
+                "where a.team_id = :tid and a.status = '대기'"
+            ),
+            {"tid": team_id},
+        ).fetchall()
+        return [{"application_id": r.application_id, "student_no": r.student_no} for r in rows]
+
+
+def get_my_vote(engine, application_id: int, voter_no: str) -> str | None:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "select v.vote from tf_votes v join tf_students s on s.id = v.voter_id "
+                "where v.application_id = :aid and s.student_no = :no"
+            ),
+            {"aid": application_id, "no": voter_no},
+        ).fetchone()
+        return row.vote if row else None
+
+
 def get_my_pending_application(engine, student_no: str) -> dict | None:
     with engine.connect() as conn:
         row = conn.execute(
