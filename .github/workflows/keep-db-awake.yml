@@ -1,0 +1,14 @@
+# 2026-10-26 20:07 KST
+name: keep-db-awake
+
+on:
+  schedule:
+    - cron: "0 15 * * *" # 매일 00:00 KST(UTC 15:00)
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 배포된 앱 주소를 방문해 DB 요청을 발생시킴
+        run: curl -fsSL "${{ vars.STREAMLIT_APP_URL }}" > /dev/null
