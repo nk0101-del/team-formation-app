@@ -91,6 +91,10 @@ def find_valid_assignment(
     return None
 
 
+def all_members_approved(members: list[dict], votes_by_voter_id: dict[int, str]) -> bool:
+    return len(members) > 0 and all(votes_by_voter_id.get(m["id"]) == "찬성" for m in members)
+
+
 def explain_infeasibility(unassigned: list[dict], existing_teams: list[list[dict]]) -> str | None:
     for i, team in enumerate(existing_teams):
         for role in missing_required_roles(team):

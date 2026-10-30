@@ -6,7 +6,13 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 from auth import hash_password, verify_password
-from rules import check_team_constraints, explain_infeasibility, format_result, validate_final_assignment
+from rules import (
+    all_members_approved,
+    check_team_constraints,
+    explain_infeasibility,
+    format_result,
+    validate_final_assignment,
+)
 from ai_assign import assign_with_fallback
 
 load_dotenv()
@@ -309,11 +315,8 @@ def cast_vote(engine, voter_no: str, application_id: int, vote: str) -> str:
             text("select voter_id, vote from tf_votes where application_id = :aid"), {"aid": application_id}
         ).fetchall()
     votes_by_voter = {v.voter_id: v.vote for v in vote_rows}
-    all_approved = len(current_members) > 0 and all(
-        votes_by_voter.get(m["id"]) == "찬성" for m in current_members
-    )
 
-    if not all_approved:
+    if not all_members_approved(current_members, votes_by_voter):
         return format_result("대기")
 
     with engine.connect() as conn:

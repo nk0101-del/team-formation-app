@@ -9,6 +9,7 @@ from rules import (
     validate_final_assignment,
     find_valid_assignment,
     explain_infeasibility,
+    all_members_approved,
 )
 
 
@@ -166,3 +167,15 @@ def test_explain_infeasibility_returns_none_when_no_clear_culprit():
     existing_teams = [[_student("1", "기획자"), _student("2", "웹 프로그래머")]]
     unassigned = [_student("3", "테스터")]
     assert explain_infeasibility(unassigned, existing_teams) is None
+
+
+def test_all_members_approved_requires_every_member_to_vote_yes():
+    members = [{"id": 1}, {"id": 2}]
+    assert all_members_approved(members, {1: "찬성", 2: "찬성"}) is True
+    assert all_members_approved(members, {1: "찬성"}) is False  # 2번이 아직 투표 안 함
+    assert all_members_approved(members, {1: "찬성", 2: "거부"}) is False
+
+
+def test_all_members_approved_false_when_team_empty():
+    # 빈 팀은 "전원 찬성"으로 셀 수 없음(모든 멤버가 찬성했다는 게 공허하게 참이 되는 것을 막음)
+    assert all_members_approved([], {}) is False
