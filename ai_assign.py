@@ -25,7 +25,9 @@ def build_prompt(teams: list[list[dict]], unassigned: list[dict]) -> str:
     )
 
 
-def call_model(model_name: str, prompt: str, api_key: str, http_post=requests.post) -> dict | None:
+def call_model(
+    model_name: str, prompt: str, api_key: str, timeout: int = 120, http_post=requests.post
+) -> dict | None:
     try:
         response = http_post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -36,6 +38,7 @@ def call_model(model_name: str, prompt: str, api_key: str, http_post=requests.po
                 "max_tokens": 4000,
                 "reasoning": {"effort": "low"},
             },
+            timeout=timeout,
         )
     except Exception:
         return None
@@ -49,7 +52,7 @@ def call_model(model_name: str, prompt: str, api_key: str, http_post=requests.po
     except Exception:
         return None
 
-    if not parsed:
+    if not isinstance(parsed, dict) or not parsed:
         return None
     return parsed
 
@@ -57,12 +60,14 @@ def call_model(model_name: str, prompt: str, api_key: str, http_post=requests.po
 def call_model_with_hard_timeout(
     model_name: str, prompt: str, api_key: str, timeout: int = 120, http_post=requests.post
 ) -> dict | None:
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(call_model, model_name, prompt, api_key, http_post)
-        try:
-            return future.result(timeout=timeout)
-        except FutureTimeoutError:
-            return None
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(call_model, model_name, prompt, api_key, timeout, http_post)
+    try:
+        return future.result(timeout=timeout)
+    except FutureTimeoutError:
+        return None
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def assign_with_fallback(
@@ -85,12 +90,18 @@ def assign_with_fallback(
             logs.append({"model": model_name, "attempt_no": attempt_no, "status": "실패", "detail": "응답 없음/실패"})
             continue
 
+        if not isinstance(mapping, dict):
+            logs.append({"model": model_name, "attempt_no": attempt_no, "status": "실패", "detail": "배정안 형식 오류"})
+            continue
+
         candidate = [list(team) for team in teams]
         try:
             for student in unassigned:
-                team_id = mapping[student["student_no"]]
+                team_id = int(mapping[student["student_no"]])
+                if not (1 <= team_id <= len(candidate)):
+                    raise ValueError("team_id out of range")
                 candidate[team_id - 1].append(student)
-        except (KeyError, IndexError):
+        except (KeyError, IndexError, TypeError, ValueError):
             logs.append({"model": model_name, "attempt_no": attempt_no, "status": "실패", "detail": "배정안 형식 오류"})
             continue
 
