@@ -10,5 +10,9 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: 배포된 앱 주소를 방문해 DB 요청을 발생시킴
-        run: curl -fsSL "${{ vars.STREAMLIT_APP_URL }}" > /dev/null
+      - name: Supabase DB에 직접 질의해 일시정지를 막음
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          sudo apt-get update -y && sudo apt-get install -y postgresql-client
+          psql "$DATABASE_URL" -c "select count(*) from tf_settings;"
