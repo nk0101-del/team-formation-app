@@ -1,7 +1,36 @@
 # 2026-10-26 20:07 KST
 import time
 
-from ai_assign import call_model_with_hard_timeout, assign_with_fallback
+from ai_assign import call_model_with_hard_timeout, assign_with_fallback, build_prompt, call_model
+
+
+def test_build_prompt_explains_rules_and_response_format():
+    teams = [[{"student_no": "1", "main_role": "기획자", "sub_roles": []}]]
+    unassigned = [{"student_no": "7", "main_role": "테스터", "sub_roles": []}]
+    prompt = build_prompt(teams, unassigned)
+    assert "기획자" in prompt and "웹 프로그래머" in prompt  # 필수 포함 역할 규칙
+    assert "2~4명" in prompt or "2-4" in prompt  # 팀 정원 규칙
+    assert '"7"' in prompt  # 배정 대상 학생 데이터 포함
+    assert "student_no" in prompt and "team_id" in prompt  # 기대하는 JSON 응답 형식 설명
+
+
+def test_call_model_sets_max_tokens_and_low_reasoning_effort():
+    captured = {}
+
+    def fake_post(url, headers=None, json=None):
+        captured.update(json)
+
+        class R:
+            status_code = 200
+
+            def json(self):
+                return {"choices": [{"message": {"content": '{"7": 1}'}}]}
+
+        return R()
+
+    call_model("some/model:free", "prompt", "key", http_post=fake_post)
+    assert captured["max_tokens"] >= 2000
+    assert captured["reasoning"]["effort"] == "low"
 
 
 def test_hard_timeout_cuts_off_slow_streaming_response():

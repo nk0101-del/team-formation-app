@@ -8,7 +8,21 @@ from rules import validate_final_assignment, find_valid_assignment
 
 
 def build_prompt(teams: list[list[dict]], unassigned: list[dict]) -> str:
-    return json.dumps({"teams": teams, "unassigned": unassigned}, ensure_ascii=False)
+    data = json.dumps({"teams": teams, "unassigned": unassigned}, ensure_ascii=False)
+    return (
+        "당신은 팀 프로젝트 팀 편성을 돕는 배정 도우미입니다. "
+        "teams는 이미 확정된 팀들이고, 각 팀의 기존 팀원은 절대 다른 팀으로 옮기면 안 됩니다. "
+        "unassigned에 있는 학생들만 teams 중 하나(기존 팀 순서, 1번부터 시작하는 team_id)에 새로 배정하세요.\n\n"
+        "규칙:\n"
+        "1. 각 팀의 최종 인원은 2~4명이어야 합니다.\n"
+        "2. 한 팀 안에서 같은 주 역할(main_role)을 가진 학생이 2명 이상이면 안 됩니다.\n"
+        "3. 모든 팀에는 기획자 역할을 맡을 수 있는 학생과 웹 프로그래머 역할을 맡을 수 있는 학생이 "
+        "서로 다른 사람으로 1명씩 있어야 합니다(주 역할 또는 보조 역할 모두 인정).\n\n"
+        f"데이터(JSON):\n{data}\n\n"
+        "응답은 다른 설명 없이 JSON 객체 하나만 출력하세요. "
+        "키는 unassigned 학생의 student_no(문자열), 값은 그 학생을 배정할 team_id(1부터 시작하는 정수)입니다. "
+        '예: {"student_no": team_id, ...}'
+    )
 
 
 def call_model(model_name: str, prompt: str, api_key: str, http_post=requests.post) -> dict | None:
@@ -19,6 +33,8 @@ def call_model(model_name: str, prompt: str, api_key: str, http_post=requests.po
             json={
                 "model": model_name,
                 "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 4000,
+                "reasoning": {"effort": "low"},
             },
         )
     except Exception:
